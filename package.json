@@ -1,0 +1,24 @@
+{
+  "name": "copywriter-agent",
+  "version": "1.0.0",
+  "description": "Agentic B2B cold-email copywriter built on the cold-email knowledge base. Drafts, self-critiques against hard rules, and revises.",
+  "type": "module",
+  "bin": {
+    "copywriter": "dist/index.js"
+  },
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "write": "tsx src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.68.0",
+    "dotenv": "^17.0.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "@types/node": "^22.0.0"
+  }
+}
