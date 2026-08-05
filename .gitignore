@@ -1,6 +1,27 @@
+# dependencies
 node_modules/
-dist/
+.pnp
+.pnp.js
+
+# next.js
+/.next/
+/out/
+next-env.d.ts
+
+# production
+/build
+/dist
+
+# headless pipeline test runs
+/output/
+
+# env
 .env
-.env.local
+.env*.local
+
+# misc
 *.log
 .DS_Store
+*.pem
+.vercel
+*.tsbuildinfo
