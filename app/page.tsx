@@ -11,6 +11,8 @@ import { OnboardPanel } from "@/components/terminal/onboard-panel";
 import { NodeCell } from "@/components/terminal/node-cell";
 import { IcpCell } from "@/components/terminal/icp-cell";
 import { Stepper, StatusDot } from "@/components/terminal/bits";
+import { Button } from "@/components/ui/button";
+import { FileDown } from "lucide-react";
 
 type FlowNode = "research" | "strategy" | "copywriting";
 
@@ -315,6 +317,45 @@ export default function Home() {
   const streamFor = (n: NodeId) =>
     live && live.node === n ? { text: live.text, status: live.status } : null;
 
+  const downloadDocx = async () => {
+    if (!active || !active.copywriting.output) return;
+    try {
+      const res = await fetch("/api/export-docx", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          clientName: active.name,
+          website: active.website,
+          copywritingOutput: active.copywriting.output,
+          icpFinalCopy: active.icp.finalCopy || undefined,
+          icpFinalScore: active.icp.finalScore || undefined,
+          minIcpScore: active.settings.minIcpScore,
+        }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => null);
+        throw new Error(j?.error ?? `Export failed (${res.status})`);
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      const slug =
+        active.name
+          .toLowerCase()
+          .trim()
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-+|-+$/g, "") || "client";
+      a.href = url;
+      a.download = `${slug}-copy.docx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      toast.error(err?.message ?? "Export failed");
+    }
+  };
+
   // ─── Render ──────────────────────────────────────────────────────────────
 
   return (
@@ -354,23 +395,39 @@ export default function Home() {
                     </a>
                   )}
                 </div>
-                <div className="ml-auto flex items-center gap-1 text-[11px] text-muted-foreground">
-                  {(
-                    [
-                      ["research", "research"],
-                      ["strategy", "strategy"],
-                      ["copywriting", "copy"],
-                      ["icp", "icp test"],
-                    ] as const
-                  ).map(([k, label], i) => (
-                    <React.Fragment key={k}>
-                      {i > 0 && <span className="text-border">──</span>}
-                      <span className="flex items-center gap-1">
-                        <StatusDot status={active[k].status} />
-                        {label}
-                      </span>
-                    </React.Fragment>
-                  ))}
+                <div className="ml-auto flex items-center gap-3">
+                  <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                    {(
+                      [
+                        ["research", "research"],
+                        ["strategy", "strategy"],
+                        ["copywriting", "copy"],
+                        ["icp", "icp test"],
+                      ] as const
+                    ).map(([k, label], i) => (
+                      <React.Fragment key={k}>
+                        {i > 0 && <span className="text-border">──</span>}
+                        <span className="flex items-center gap-1">
+                          <StatusDot status={active[k].status} />
+                          {label}
+                        </span>
+                      </React.Fragment>
+                    ))}
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={!active.copywriting.output}
+                    onClick={downloadDocx}
+                    title={
+                      active.copywriting.output
+                        ? "Download all copy as a consolidated Word doc"
+                        : "Write copy first"
+                    }
+                  >
+                    <FileDown className="size-3.5" /> Download DOCX
+                  </Button>
                 </div>
               </div>
             </header>

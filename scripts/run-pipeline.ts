@@ -13,6 +13,7 @@ import { join } from "node:path";
 import { createInterface } from "node:readline/promises";
 
 import { structuredCall, streamText, MODEL } from "@/lib/anthropic";
+import { buildCopyDocx } from "@/lib/docx-export";
 import {
   copySystem,
   icpJudgeSystem,
@@ -435,6 +436,17 @@ ${onboardingDocs || "(none)"}
     ].join("\n---\n\n");
     await writeFile(join(outDir, "04-icp-brutal-test.md"), icpMd, "utf8");
     await writeFile(join(outDir, "05-final-copy.md"), icpResult.finalCopy, "utf8");
+
+    // 5. Consolidated Word doc — the actual client-deliverable artifact.
+    const docxBuffer = await buildCopyDocx({
+      clientName: name,
+      website,
+      copywritingOutput: copyOutput,
+      icpFinalCopy: icpResult.finalCopy,
+      icpFinalScore: icpResult.finalScore,
+      minIcpScore,
+    });
+    await writeFile(join(outDir, "06-consolidated-copy.docx"), docxBuffer);
 
     console.log(`\n\x1b[1mDone.\x1b[0m Final ICP score: ${icpResult.finalScore}/10. Files written to:\n  ${outDir}`);
   } catch (err) {
