@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
-import { PDFParse } from "pdf-parse";
+import { extractText, getDocumentProxy } from "unpdf";
 import mammoth from "mammoth";
 
 export const runtime = "nodejs";
@@ -29,9 +29,9 @@ export async function POST(req: NextRequest) {
   try {
     let text: string;
     if (ext === "pdf") {
-      const parser = new PDFParse({ data: buffer });
-      const result = await parser.getText();
-      text = result.text.replace(/\n?-- \d+ of \d+ --\n?/g, "").trim();
+      const pdf = await getDocumentProxy(new Uint8Array(buffer));
+      const result = await extractText(pdf, { mergePages: true });
+      text = result.text.trim();
       if (!text) {
         return NextResponse.json(
           { error: `${file.name} has no extractable text (likely an image-only or corrupted PDF).` },
