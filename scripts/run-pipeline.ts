@@ -87,11 +87,19 @@ function slug(name: string): string {
 function buildResearchSeed(input: {
   name: string;
   website: string;
+  valueProp?: string;
+  offers?: string;
   onboardingDocs: string;
   strategyIdea: string;
 }): string {
   return `Client: ${input.name}
 Website: ${input.website || "(none provided)"}
+
+Value proposition (from onboarding — authoritative if given):
+${input.valueProp || "(not provided — infer from onboarding docs/site if possible)"}
+
+Offers (from onboarding — authoritative if given; the ONLY offers later strategies may use):
+${input.offers || "(not provided — extract from onboarding docs/site if possible)"}
 
 Onboarding docs / questionnaire:
 ${input.onboardingDocs || "(none provided)"}
@@ -275,6 +283,8 @@ ${currentCopy}`,
 interface PipelineInput {
   name: string;
   website?: string;
+  valueProp?: string;
+  offers?: string;
   onboardingDocs?: string;
   strategyIdea?: string;
   copyTarget?: string;
@@ -291,8 +301,10 @@ async function gatherInteractive(): Promise<PipelineInput> {
     process.exit(1);
   }
   const website = await ask("Website URL", "");
+  const valueProp = await askLong("Value prop (optional)");
+  const offers = await askLong("Offers, one per line (optional)");
   const onboardingDocs = await askLong("Onboarding docs / questionnaire notes");
-  const strategyIdea = await askLong("Initial strategy idea (optional)");
+  const strategyIdea = await askLong("Initial strategy idea (optional — Claude will still fully strategize around it)");
   const copyTarget = await ask("Which strategies should Copywriting write for?", "the top 3 recommended strategies");
 
   console.log("\n--- Settings (Enter to accept defaults) ---");
@@ -311,6 +323,8 @@ async function gatherInteractive(): Promise<PipelineInput> {
   return {
     name,
     website,
+    valueProp,
+    offers,
     onboardingDocs,
     strategyIdea,
     copyTarget,
@@ -334,6 +348,8 @@ async function main() {
 
   const name = raw.name;
   const website = raw.website ?? "";
+  const valueProp = raw.valueProp ?? "";
+  const offers = raw.offers ?? "";
   const onboardingDocs = raw.onboardingDocs ?? "";
   const strategyIdea = raw.strategyIdea ?? "";
   const copyTarget = raw.copyTarget || "the top 3 recommended strategies";
@@ -353,6 +369,12 @@ async function main() {
 - **Web tools:** ${useWebTools ? "enabled" : "disabled"}
 - **Settings:** ${JSON.stringify(settings, null, 2)}
 
+## Value prop
+${valueProp || "(none)"}
+
+## Offers
+${offers || "(none)"}
+
 ## Strategy idea
 ${strategyIdea || "(none)"}
 
@@ -367,7 +389,7 @@ ${onboardingDocs || "(none)"}
     const researchOutput = await runStreamingNode({
       label: "1. Research",
       system: await researchSystem(),
-      messages: [{ role: "user", content: buildResearchSeed({ name, website, onboardingDocs, strategyIdea }) }],
+      messages: [{ role: "user", content: buildResearchSeed({ name, website, valueProp, offers, onboardingDocs, strategyIdea }) }],
       web: useWebTools,
       maxWebUses: 25,
       maxTokens: 16000,

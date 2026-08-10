@@ -37,7 +37,7 @@ If web tools are unavailable, work strictly from the onboarding docs and any pas
 1. **Client Summary** — who they are, what they sell, how they deliver.
 2. **ICP Definition** — role(s), company size, industry, geography. Note the locale (e.g. UK) so copy can match.
 3. **Key Differentiators** — what makes them genuinely different (things competitors lack).
-4. **Available Offers** — extract EVERY lead magnet / offer from the onboarding docs, as short labels. These are the ONLY offers later strategies may use. If none exist, say so and ask.
+4. **Available Offers** — if the user gave an explicit Offers field, treat it as authoritative; otherwise extract EVERY lead magnet / offer from the onboarding docs, as short labels. These are the ONLY offers later strategies may use. If none exist, say so and ask.
 5. **Industry Pain Points (verified)** — the top pains the ICP feels, each with a stat + source + date where possible, and the emotional weight.
 6. **Competitor Landscape** — 3-5 named competitors, each with their actual positioning (from their own site/reviews, not assumption) and an exploitable weakness / contrarian angle.
 7. **Psychographic Profile** — the buyer as a person: motivations, fears, what they want to be seen as.

@@ -32,6 +32,8 @@ export function newId(): string {
 export function makeProject(input: {
   name: string;
   website: string;
+  valueProp?: string;
+  offers?: string;
   onboardingDocs: string;
   strategyIdea: string;
 }): ClientProject {
@@ -40,6 +42,8 @@ export function makeProject(input: {
     id: newId(),
     name: input.name.trim() || "Untitled client",
     website: input.website.trim(),
+    valueProp: input.valueProp?.trim() ?? "",
+    offers: input.offers?.trim() ?? "",
     onboardingDocs: input.onboardingDocs,
     strategyIdea: input.strategyIdea,
     createdAt: now,

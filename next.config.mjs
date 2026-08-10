@@ -8,6 +8,10 @@ const nextConfig = {
       "./content/**/*",
     ],
   },
+  // pdf-parse bundles pdfjs-dist, which breaks when webpack tries to bundle it
+  // for the server ("Object.defineProperty called on non-object") — load both
+  // natively via require at runtime instead.
+  serverExternalPackages: ["pdf-parse", "pdfjs-dist"],
 };
 
 export default nextConfig;

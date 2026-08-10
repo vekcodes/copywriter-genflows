@@ -54,6 +54,8 @@ export interface ClientProject {
   id: string;
   name: string;
   website: string;
+  valueProp: string;
+  offers: string;
   onboardingDocs: string;
   strategyIdea: string;
   createdAt: number;

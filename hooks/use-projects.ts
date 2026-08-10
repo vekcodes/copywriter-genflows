@@ -54,6 +54,8 @@ export function useProjects() {
     (input: {
       name: string;
       website: string;
+      valueProp?: string;
+      offers?: string;
       onboardingDocs: string;
       strategyIdea: string;
     }) => {

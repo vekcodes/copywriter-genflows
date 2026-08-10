@@ -26,6 +26,12 @@ function buildResearchSeed(p: ClientProject, extra: string): string {
   return `Client: ${p.name}
 Website: ${p.website || "(none provided)"}
 
+Value proposition (from onboarding — authoritative if given):
+${p.valueProp || "(not provided — infer from onboarding docs/site if possible)"}
+
+Offers (from onboarding — authoritative if given; the ONLY offers later strategies may use):
+${p.offers || "(not provided — extract from onboarding docs/site if possible)"}
+
 Onboarding docs / questionnaire:
 ${p.onboardingDocs || "(none provided)"}
 ${p.strategyIdea ? `\nOur initial strategy idea:\n${p.strategyIdea}\n` : ""}
