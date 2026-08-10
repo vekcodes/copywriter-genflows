@@ -62,7 +62,7 @@ export function Sidebar({
         )}
         <ul className="space-y-0.5">
           {projects.map((p) => {
-            const nodes = [p.research, p.strategy, p.copywriting] as const;
+            const nodes = [p.research, p.strategy, p.copywriting, p.icp] as const;
             return (
               <li key={p.id}>
                 <button
