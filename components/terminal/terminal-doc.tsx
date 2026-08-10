@@ -22,7 +22,7 @@ function renderInline(text: string, kp: string): React.ReactNode[] {
       nodes.push(
         <code
           key={`${kp}-${i}`}
-          className="rounded bg-secondary px-1 py-0.5 text-[0.85em] text-term-cyan"
+          className="rounded bg-secondary px-1 py-0.5 font-mono text-[0.85em] text-term-cyan"
         >
           {m[3]}
         </code>,
@@ -110,7 +110,7 @@ export function TerminalDoc({
         blocks.push(
           <pre
             key={key++}
-            className="my-2 overflow-x-auto rounded-md border border-border bg-secondary/40 p-3 text-xs text-term-green"
+            className="my-2 overflow-x-auto rounded-md border border-border bg-secondary/40 p-3 font-mono text-xs text-term-green"
           >
             {codeBuf.join("\n")}
           </pre>,
@@ -215,7 +215,7 @@ export function TerminalDoc({
     blocks.push(
       <pre
         key={key++}
-        className="my-2 overflow-x-auto rounded-md border border-border bg-secondary/40 p-3 text-xs text-term-green"
+        className="my-2 overflow-x-auto rounded-md border border-border bg-secondary/40 p-3 font-mono text-xs text-term-green"
       >
         {codeBuf.join("\n")}
       </pre>,

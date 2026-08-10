@@ -4,32 +4,34 @@
 @custom-variant dark (&:is(.dark *));
 
 /*
-  GenFlows Copywriter Agent — a terminal / Claude-Code aesthetic.
-  The app runs dark by default. Warm coral accent (Anthropic-ish),
-  classic terminal greens/ambers for stream output.
+  GenFlows Copywriter Agent — a terminal / Claude-Code aesthetic, themed
+  with GenFlows' own brand (genflows.com): navy #0a1f35, orange #e67e22,
+  Manrope for UI text, JetBrains Mono for terminal/code (their own mono
+  brand font too, so the "terminal" identity IS on-brand, not a compromise).
+  The app runs dark by default.
 */
 
 :root {
   --radius: 0.5rem;
 
-  --background: oklch(0.985 0 0);
-  --foreground: oklch(0.16 0 0);
+  --background: oklch(1 0 0);
+  --foreground: #0a1f35;
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.16 0 0);
+  --card-foreground: #0a1f35;
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.16 0 0);
-  --primary: oklch(0.62 0.15 34);
-  --primary-foreground: oklch(0.99 0 0);
-  --secondary: oklch(0.96 0 0);
-  --secondary-foreground: oklch(0.2 0 0);
-  --muted: oklch(0.96 0 0);
-  --muted-foreground: oklch(0.52 0 0);
-  --accent: oklch(0.96 0 0);
-  --accent-foreground: oklch(0.2 0 0);
+  --popover-foreground: #0a1f35;
+  --primary: #e67e22;
+  --primary-foreground: #1a0e03;
+  --secondary: #f5f5f7;
+  --secondary-foreground: #0a1f35;
+  --muted: #f5f5f7;
+  --muted-foreground: #6e7180;
+  --accent: #fff1e2;
+  --accent-foreground: #1a0e03;
   --destructive: oklch(0.58 0.22 27);
-  --border: oklch(0.9 0 0);
-  --input: oklch(0.9 0 0);
-  --ring: oklch(0.62 0.15 34);
+  --border: #d3d6e0;
+  --input: #d3d6e0;
+  --ring: #e67e22;
 
   --term-green: oklch(0.78 0.16 150);
   --term-amber: oklch(0.82 0.15 80);
@@ -40,24 +42,24 @@
 }
 
 .dark {
-  --background: oklch(0.145 0.005 285);
-  --foreground: oklch(0.92 0.005 90);
-  --card: oklch(0.178 0.005 285);
-  --card-foreground: oklch(0.92 0.005 90);
-  --popover: oklch(0.178 0.005 285);
-  --popover-foreground: oklch(0.92 0.005 90);
-  --primary: oklch(0.7 0.14 38);
-  --primary-foreground: oklch(0.16 0.02 40);
-  --secondary: oklch(0.24 0.005 285);
-  --secondary-foreground: oklch(0.92 0 0);
-  --muted: oklch(0.24 0.005 285);
-  --muted-foreground: oklch(0.66 0.005 90);
-  --accent: oklch(0.27 0.006 285);
-  --accent-foreground: oklch(0.95 0 0);
+  --background: #0a1f35;
+  --foreground: #f5f5f7;
+  --card: #0f2a45;
+  --card-foreground: #f5f5f7;
+  --popover: #0f2a45;
+  --popover-foreground: #f5f5f7;
+  --primary: #e67e22;
+  --primary-foreground: #1a0e03;
+  --secondary: #071524;
+  --secondary-foreground: #f5f5f7;
+  --muted: #071524;
+  --muted-foreground: #6e7180;
+  --accent: #0f2a45;
+  --accent-foreground: #ffc58a;
   --destructive: oklch(0.62 0.21 25);
-  --border: oklch(0.28 0.005 285);
-  --input: oklch(0.3 0.005 285);
-  --ring: oklch(0.7 0.14 38);
+  --border: #1c3852;
+  --input: #1c3852;
+  --ring: #e67e22;
 
   --term-green: oklch(0.82 0.17 150);
   --term-amber: oklch(0.85 0.15 82);
@@ -101,8 +103,8 @@
 
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono",
     Menlo, Consolas, "Liberation Mono", monospace;
-  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
-    Helvetica, Arial, sans-serif;
+  --font-sans: "Manrope", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+    Roboto, Helvetica, Arial, sans-serif;
 }
 
 @layer base {
