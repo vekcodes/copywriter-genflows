@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
-import { buildCopyDocx } from "@/lib/docx-export";
+import { buildCopyDocx, type StrategyDocxInput } from "@/lib/docx-export";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -18,10 +18,10 @@ function slug(name: string): string {
 export async function POST(req: NextRequest) {
   const body = await req.json();
   const clientName: string = body?.clientName;
-  const copywritingOutput: string = body?.copywritingOutput;
-  if (!clientName || !copywritingOutput) {
+  const strategies: StrategyDocxInput[] = body?.strategies;
+  if (!clientName || !Array.isArray(strategies) || !strategies.length) {
     return NextResponse.json(
-      { error: "clientName and copywritingOutput are required." },
+      { error: "clientName and a non-empty strategies array are required." },
       { status: 400 },
     );
   }
@@ -29,9 +29,7 @@ export async function POST(req: NextRequest) {
   const buffer = await buildCopyDocx({
     clientName,
     website: body?.website,
-    copywritingOutput,
-    icpFinalCopy: body?.icpFinalCopy,
-    icpFinalScore: body?.icpFinalScore,
+    strategies,
     minIcpScore: body?.minIcpScore,
   });
 

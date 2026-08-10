@@ -67,16 +67,43 @@ Two families of strategy, and you must produce BOTH:
 
 Aim for roughly a **${signal}% signal-based / ${nonSignal}% fallback** balance across the strategy set (adjust slightly if the research clearly favors one side — and say why). A strong fallback set matters: signal data is not always available.
 
+## Labeling (mandatory — downstream steps parse this)
+
+Give every strategy an ID using this exact scheme:
+- **S1, S2, S3, ...** for fallback / non-signal (Macro) strategies.
+- **SS1, SS2, SS3, ...** for signal-based (Micro) strategies. The doubled S is deliberate — it must be unmistakable at a glance which strategies need a live data source to run, versus which ones just need the list.
+
+Never call a signal strategy "S" and never call a fallback strategy "SS". Give each strategy a heading like "STRATEGY S1 — {memorable name}" or "STRATEGY SS1 — {memorable name}".
+
+For every **SS** (signal) strategy, include an explicit **"How to source this signal:"** line naming concrete, actionable methods — real tools or techniques (e.g. "LinkedIn Sales Navigator alerts filtered by title change + industry", "Apollo.io or Clay intent/job-change data", "BuiltWith or Wappalyzer for tech-stack signals", "G2/Capterra review monitoring", "job board scraping for new postings in X role"), not a vague restatement of the trigger itself. Whoever runs this campaign needs to know exactly where to go get the data point, not just that a signal exists.
+
 Hard rules:
 - Use ONLY the offers extracted in the research brief's "Available Offers". Never invent offers. Offers are short labels, not pitches.
 - Lead every strategy with a specific, emotional, data-backed pain. Use "you" language.
-- Give each strategy a memorable name, a Pain, an Offer, and (for Micro) the exact signal + how to source it.
+- Give each strategy a memorable name, a Pain, an Offer, and (for SS) the exact signal + how to source it.
 - Include the full ranking table and a Top Recommendations list, exactly as the methodology specifies.
 - End with the "Strategic Guidance for Message Copy" section so the copywriter has differentiators, proof points, tone, and psychographics to work from.
 
 Be willing to say a weak strategy isn't worth running. When the user gives feedback, understand WHY they rejected something and don't repeat the mistake.
 
 ${wrap("AGENCY STRATEGY-BUILDER METHODOLOGY (reference)", source)}`;
+}
+
+/**
+ * STRATEGY LIST extraction. A lightweight structured pass over the Strategy
+ * doc's own output, turning its freeform markdown into a clean array the app
+ * can loop over — one Copywriting + ICP pass per strategy, no exceptions.
+ */
+export function strategyListSystem(): string {
+  return `You extract a clean, structured list of every strategy from a cold-email strategy document.
+
+For each strategy, identify:
+- id: its label as written (e.g. "S1", "SS2"). If a strategy is clearly signal/trigger-based but wasn't labeled with the double-S, normalize it to the SS prefix; likewise normalize non-signal strategies to a plain S prefix. Preserve the original numbering order.
+- name: its memorable name, without the ID prefix.
+- kind: "fallback" (no signal/trigger needed, scales to a large list) or "signal" (needs a live trigger/data point, smaller and higher-intent).
+- signalSourcing: for "signal" strategies ONLY, the concrete method the doc gives for sourcing the trigger data (tool names, techniques) — omit entirely for "fallback" strategies.
+
+List EVERY strategy in the document, in the order they appear. Do not skip any, do not invent any that aren't there.`;
 }
 
 /**
@@ -99,9 +126,9 @@ export async function copySystem(settings: ProjectSettings): Promise<string> {
         ? "This client's offer needs explaining. You MAY exceed 80 words where clarity demands it, but stay tight and justify it in Notes."
         : "Default to under 80 words. Break it ONLY if the research's Offer-Complexity Read says the offer needs explaining and the client's conversion depends on the prospect understanding it. If you break it, justify it in Notes.";
 
-  return `You are the copywriter defined by the master prompt below. Write cold-email copy for the strategy (or strategies) the user specifies, using the research brief and strategy doc they provide.
+  return `You are the copywriter defined by the master prompt below. The user will give you the research brief, the full strategy doc, and ONE specific strategy (its ID, name, and details) to write for. Write copy for EXACTLY that one strategy — do not write for any other strategy in the doc, even if others look stronger. This node runs once per strategy, so every strategy gets its own dedicated pass.
 
-For each strategy: ${versionNote}
+${versionNote}
 ${wordRule}
 
 Everything you write must be traceable to the brief: use only the offers, proof points, differentiators, and named customers that appear there. Never fabricate metrics or logos. Match the client's locale.

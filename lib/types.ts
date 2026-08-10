@@ -4,6 +4,9 @@ export type NodeId = "research" | "strategy" | "copywriting" | "icp";
 
 export type NodeStatus = "idle" | "running" | "done" | "error";
 
+/** "fallback" = universal-pain, no trigger needed (labeled S1, S2...). */
+export type StrategyKind = "fallback" | "signal";
+
 /** One turn in a node's mini-conversation (initial run + feedback rounds). */
 export interface ChatTurn {
   role: "user" | "assistant";
@@ -37,6 +40,21 @@ export interface IcpState {
   error?: string;
 }
 
+/**
+ * One strategy extracted from the Strategy doc, with its own copy + ICP
+ * brutal-test lifecycle. Labeled S1, S2... (fallback) or SS1, SS2... (signal) —
+ * the double-S flags "this one needs a live data source to run."
+ */
+export interface StrategyUnit {
+  id: string;
+  name: string;
+  kind: StrategyKind;
+  /** For signal strategies: concrete instructions for sourcing the trigger data. */
+  signalSourcing?: string;
+  copy: NodeState;
+  icp: IcpState;
+}
+
 export interface ProjectSettings {
   /** How many copy versions per strategy (A..). */
   versionCount: number;
@@ -62,8 +80,8 @@ export interface ClientProject {
   updatedAt: number;
   research: NodeState;
   strategy: NodeState;
-  copywriting: NodeState;
-  icp: IcpState;
+  /** Populated once the Strategy list is extracted; one entry per strategy. */
+  strategies: StrategyUnit[];
   settings: ProjectSettings;
 }
 
@@ -81,6 +99,19 @@ export interface ChatRequestBody {
   messages: ChatTurn[];
   /** Enable live web research tools for this call. */
   web?: boolean;
+}
+
+export interface StrategyListRequestBody {
+  strategyOutput: string;
+}
+
+export interface StrategyListResponseBody {
+  strategies: Array<{
+    id: string;
+    name: string;
+    kind: StrategyKind;
+    signalSourcing?: string;
+  }>;
 }
 
 export interface IcpRequestBody {

@@ -5,16 +5,26 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useProjects } from "@/hooks/use-projects";
 import { streamNdjson } from "@/lib/client-stream";
-import type { ChatTurn, ClientProject, IcpRound, NodeId } from "@/lib/types";
+import { aggregateStrategyStatus, makeStrategyUnit } from "@/lib/project";
+import type {
+  ChatTurn,
+  ClientProject,
+  IcpRound,
+  NodeId,
+  NodeStatus,
+  StrategyListResponseBody,
+  StrategyUnit,
+} from "@/lib/types";
 import { Sidebar } from "@/components/terminal/sidebar";
 import { OnboardPanel } from "@/components/terminal/onboard-panel";
 import { NodeCell } from "@/components/terminal/node-cell";
 import { IcpCell } from "@/components/terminal/icp-cell";
+import { StrategyUnitHeader } from "@/components/terminal/strategy-unit-card";
 import { Stepper, StatusDot } from "@/components/terminal/bits";
 import { Button } from "@/components/ui/button";
-import { FileDown } from "lucide-react";
+import { FileDown, ListRestart, Play } from "lucide-react";
 
-type FlowNode = "research" | "strategy" | "copywriting";
+type FlowNode = "research" | "strategy";
 
 const WORD_MODES: { v: ClientProject["settings"]["wordLimitMode"]; l: string }[] = [
   { v: "strict", l: "≤80 strict" },
@@ -48,23 +58,27 @@ function buildStrategySeed(p: ClientProject, extra: string): string {
 ${p.research.output}
 ---
 ${p.strategyIdea ? `\nOur initial strategy idea to consider:\n${p.strategyIdea}\n` : ""}
-Build the full set of outreach strategies now — signal-based (micro) and fallback (macro), aiming for roughly ${p.settings.signalRatio}% signal-based. Include the ranking table, top recommendations, and the strategic guidance for copy.${
+Build the full set of outreach strategies now — signal-based (micro) and fallback (macro), aiming for roughly ${p.settings.signalRatio}% signal-based. Include the ranking table, top recommendations, and the strategic guidance for copy. Label every strategy S1, S2... (fallback) or SS1, SS2... (signal) per your instructions.${
     extra ? `\n\nAdditional instruction: ${extra}` : ""
   }`;
 }
 
-function buildCopySeed(p: ClientProject, target: string): string {
+function buildStrategyCopySeed(p: ClientProject, unit: StrategyUnit, extra: string): string {
   return `RESEARCH BRIEF:
 ---
 ${p.research.output}
 ---
 
-STRATEGY DOC:
+STRATEGY DOC (full, for context — but write for ONLY the one strategy named below):
 ---
 ${p.strategy.output}
 ---
 
-Write cold-email copy for: ${target || "the top 3 recommended strategies"}.`;
+Write the full copy set for EXACTLY this one strategy: **${unit.id} — ${unit.name}** (${
+    unit.kind === "signal" ? "signal-based" : "fallback"
+  }).${unit.signalSourcing ? ` Signal sourcing: ${unit.signalSourcing}` : ""} Do not write for any other strategy in the doc.${
+    extra ? `\n\nAdditional instruction: ${extra}` : ""
+  }`;
 }
 
 function clientContextFor(p: ClientProject): string {
@@ -79,16 +93,22 @@ export default function Home() {
 
   const [live, setLive] = React.useState<{
     node: NodeId;
+    strategyId?: string;
     text: string;
     status: string;
   } | null>(null);
+  const [runningAll, setRunningAll] = React.useState(false);
+  const [extracting, setExtracting] = React.useState(false);
   const abortRef = React.useRef<AbortController | null>(null);
-  const runRef = React.useRef<{ nodeId: FlowNode; acc: string; baseTurns: ChatTurn[] } | null>(
-    null,
-  );
+  const runRef = React.useRef<{
+    nodeId: FlowNode | "copywriting";
+    strategyId?: string;
+    acc: string;
+    baseTurns: ChatTurn[];
+  } | null>(null);
   const sanitized = React.useRef(false);
 
-  // One-time cleanup of any node left in "running" from a previous session.
+  // One-time cleanup of anything left in "running" from a previous session.
   React.useEffect(() => {
     if (!loaded || sanitized.current) return;
     sanitized.current = true;
@@ -97,18 +117,22 @@ export default function Home() {
         s === "running" ? (hasOut ? "done" : "idle") : s;
       const patch: Partial<ClientProject> = {};
       let changed = false;
-      (["research", "strategy", "copywriting"] as const).forEach((k) => {
+      (["research", "strategy"] as const).forEach((k) => {
         const next = fix(p[k].status, !!p[k].output);
         if (next !== p[k].status) {
           (patch as any)[k] = { ...p[k], status: next };
           changed = true;
         }
       });
-      if (p.icp.status === "running") {
-        patch.icp = {
-          ...p.icp,
-          status: p.icp.rounds.length ? "done" : "idle",
-        };
+      const fixStatus = (s: NodeStatus, hasOut: boolean): NodeStatus =>
+        s === "running" ? (hasOut ? "done" : "idle") : s;
+      const fixedStrategies = p.strategies?.map((u) => ({
+        ...u,
+        copy: { ...u.copy, status: fixStatus(u.copy.status, !!u.copy.output) },
+        icp: { ...u.icp, status: fixStatus(u.icp.status, u.icp.rounds.length > 0) },
+      }));
+      if (fixedStrategies && JSON.stringify(fixedStrategies) !== JSON.stringify(p.strategies)) {
+        patch.strategies = fixedStrategies;
         changed = true;
       }
       if (changed) update(p.id, patch);
@@ -116,46 +140,87 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded]);
 
-  const busy = live !== null;
+  const busy = live !== null || runningAll;
+
+  const updateStrategy = React.useCallback(
+    (projectId: string, strategyId: string, patch: (u: StrategyUnit) => StrategyUnit) => {
+      update(projectId, (prev) => ({
+        ...prev,
+        strategies: prev.strategies.map((u) => (u.id === strategyId ? patch(u) : u)),
+      }));
+    },
+    [update],
+  );
 
   const stop = React.useCallback(() => {
     abortRef.current?.abort();
     const r = runRef.current;
     if (r && activeId) {
-      update(activeId, (prev) => {
-        const finalTurns = [
-          ...r.baseTurns,
-          { role: "assistant" as const, content: r.acc },
-        ];
-        return {
-          ...prev,
-          [r.nodeId]: {
-            ...prev[r.nodeId],
+      const finalTurns = [...r.baseTurns, { role: "assistant" as const, content: r.acc }];
+      if (r.strategyId) {
+        updateStrategy(activeId, r.strategyId, (u) => ({
+          ...u,
+          copy: {
+            ...u.copy,
             status: r.acc ? "done" : "idle",
-            output: r.acc || prev[r.nodeId].output,
-            turns: r.acc ? finalTurns : prev[r.nodeId].turns,
+            output: r.acc || u.copy.output,
+            turns: r.acc ? finalTurns : u.copy.turns,
           },
-        };
-      });
-    } else if (activeId) {
-      // ICP or empty run — just mark not-running.
-      update(activeId, (prev) => ({
-        ...prev,
+        }));
+      } else {
+        update(activeId, (prev) => ({
+          ...prev,
+          [r.nodeId as FlowNode]: {
+            ...prev[r.nodeId as FlowNode],
+            status: r.acc ? "done" : "idle",
+            output: r.acc || prev[r.nodeId as FlowNode].output,
+            turns: r.acc ? finalTurns : prev[r.nodeId as FlowNode].turns,
+          },
+        }));
+      }
+    } else if (activeId && live?.node === "icp" && live.strategyId) {
+      updateStrategy(activeId, live.strategyId, (u) => ({
+        ...u,
         icp:
-          prev.icp.status === "running"
-            ? { ...prev.icp, status: prev.icp.rounds.length ? "done" : "idle" }
-            : prev.icp,
+          u.icp.status === "running"
+            ? { ...u.icp, status: u.icp.rounds.length ? "done" : "idle" }
+            : u.icp,
       }));
     }
     runRef.current = null;
     abortRef.current = null;
     setLive(null);
-  }, [activeId, update]);
+  }, [activeId, update, updateStrategy, live]);
 
   const handleSelect = (id: string) => {
     if (busy) stop();
     setActiveId(id);
   };
+
+  const extractStrategies = React.useCallback(
+    async (projectId: string, strategyOutput: string) => {
+      setExtracting(true);
+      try {
+        const res = await fetch("/api/strategy-list", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ strategyOutput }),
+        });
+        if (!res.ok) throw new Error(`Failed to read the strategy list (${res.status})`);
+        const data = (await res.json()) as StrategyListResponseBody;
+        update(projectId, (prev) => ({
+          ...prev,
+          strategies: data.strategies.map((s) => makeStrategyUnit(s)),
+        }));
+        toast.success(`Found ${data.strategies.length} strategies — ready to write + brutal-test`);
+      } catch (err: any) {
+        toast.error(err?.message ?? "Could not read the strategy list");
+      } finally {
+        setExtracting(false);
+      }
+    },
+    [update],
+  );
 
   const runNode = async (nodeId: FlowNode, feedback: string) => {
     if (!active || busy) return;
@@ -169,11 +234,7 @@ export default function Home() {
       baseTurns = [...node.turns, { role: "user", content: feedback.trim() }];
     } else {
       const seed =
-        nodeId === "research"
-          ? buildResearchSeed(p, feedback.trim())
-          : nodeId === "strategy"
-            ? buildStrategySeed(p, feedback.trim())
-            : buildCopySeed(p, feedback.trim());
+        nodeId === "research" ? buildResearchSeed(p, feedback.trim()) : buildStrategySeed(p, feedback.trim());
       baseTurns = [{ role: "user", content: seed }];
     }
 
@@ -189,7 +250,7 @@ export default function Home() {
 
     await streamNdjson(
       `/api/${nodeId}`,
-      { messages: baseTurns, web: nodeId !== "copywriting", settings: p.settings },
+      { messages: baseTurns, web: true, settings: p.settings },
       (f) => {
         if (f.t === "token") {
           if (runRef.current) runRef.current.acc += f.text;
@@ -217,6 +278,9 @@ export default function Home() {
           }));
           runRef.current = null;
           setLive(null);
+          if (nodeId === "strategy" && acc.trim()) {
+            extractStrategies(p.id, acc);
+          }
         }
       },
       ctrl.signal,
@@ -224,101 +288,186 @@ export default function Home() {
     abortRef.current = null;
   };
 
-  const runIcp = async () => {
-    if (!active || busy) return;
-    const p = active;
-    if (!p.copywriting.output) return;
+  /** Writes copy for exactly one strategy. Returns the written text (for chaining in runAllStrategies). */
+  const runStrategyCopy = React.useCallback(
+    async (unit: StrategyUnit, feedback: string): Promise<string> => {
+      if (!active || (busy && !runningAll)) return "";
+      const p = active;
+      const hasAssistant = unit.copy.turns.some((t) => t.role === "assistant");
+      const refine = hasAssistant && feedback.trim() !== "";
+      const baseTurns: ChatTurn[] = refine
+        ? [...unit.copy.turns, { role: "user", content: feedback.trim() }]
+        : [{ role: "user", content: buildStrategyCopySeed(p, unit, feedback.trim()) }];
 
-    update(p.id, (prev) => ({
-      ...prev,
-      icp: { status: "running", rounds: [], finalCopy: "", finalScore: 0 },
-    }));
-    setLive({ node: "icp", text: "", status: "" });
+      updateStrategy(p.id, unit.id, (u) => ({
+        ...u,
+        copy: { ...u.copy, status: "running", error: undefined, turns: baseTurns },
+      }));
+      setLive({ node: "copywriting", strategyId: unit.id, text: "", status: "" });
 
-    const ctrl = new AbortController();
-    abortRef.current = ctrl;
-    runRef.current = null;
+      const ctrl = new AbortController();
+      abortRef.current = ctrl;
+      runRef.current = { nodeId: "copywriting", strategyId: unit.id, acc: "", baseTurns };
 
-    const rounds: IcpRound[] = [];
-    let finalCopy = p.copywriting.output;
-    let finalScore = 0;
-    let acc = "";
+      let result = "";
+      await streamNdjson(
+        "/api/copywriting",
+        { messages: baseTurns, web: false, settings: p.settings },
+        (f) => {
+          if (f.t === "token") {
+            if (runRef.current) runRef.current.acc += f.text;
+            setLive((l) => (l ? { ...l, text: runRef.current?.acc ?? l.text } : l));
+          } else if (f.t === "status") {
+            setLive((l) => (l ? { ...l, status: f.msg } : l));
+          } else if (f.t === "error") {
+            updateStrategy(p.id, unit.id, (u) => ({
+              ...u,
+              copy: { ...u.copy, status: "error", error: f.msg },
+            }));
+            runRef.current = null;
+            setLive(null);
+          } else if (f.t === "done") {
+            result = runRef.current?.acc ?? "";
+            updateStrategy(p.id, unit.id, (u) => ({
+              ...u,
+              copy: {
+                ...u.copy,
+                status: "done",
+                output: result,
+                turns: [...baseTurns, { role: "assistant", content: result }],
+                error: undefined,
+              },
+            }));
+            runRef.current = null;
+            setLive(null);
+          }
+        },
+        ctrl.signal,
+      );
+      abortRef.current = null;
+      return result;
+    },
+    [active, busy, runningAll, updateStrategy],
+  );
 
-    await streamNdjson(
-      "/api/icp",
-      {
-        copy: p.copywriting.output,
-        strategyContext: p.strategy.output,
-        clientContext: clientContextFor(p),
-        minScore: p.settings.minIcpScore,
-        maxRounds: p.settings.maxIcpRounds,
-        wordLimitMode: p.settings.wordLimitMode,
-      },
-      (f) => {
-        if (f.t === "status") {
-          setLive((l) => (l ? { ...l, status: f.msg } : l));
-        } else if (f.t === "token") {
-          acc += f.text;
-          setLive((l) => (l ? { ...l, text: acc } : l));
-        } else if (f.t === "icp") {
-          rounds.push(f.round);
-          acc = "";
-          update(p.id, (prev) => ({
-            ...prev,
-            icp: { ...prev.icp, status: "running", rounds: [...rounds] },
-          }));
-          setLive((l) => (l ? { ...l, text: "" } : l));
-        } else if (f.t === "final") {
-          finalCopy = f.copy;
-          finalScore = f.score;
-        } else if (f.t === "error") {
-          update(p.id, (prev) => ({
-            ...prev,
-            icp: { ...prev.icp, status: "error", error: f.msg },
-          }));
-          setLive(null);
-        } else if (f.t === "done") {
-          update(p.id, (prev) => ({
-            ...prev,
-            icp: {
-              ...prev.icp,
-              status: "done",
-              rounds: [...rounds],
-              finalCopy,
-              finalScore,
-            },
-          }));
-          setLive(null);
+  /** Runs the ICP brutal test for exactly one strategy's copy. */
+  const runStrategyIcp = React.useCallback(
+    async (unit: StrategyUnit, copyOverride?: string): Promise<void> => {
+      if (!active || (busy && !runningAll)) return;
+      const p = active;
+      const copyText = copyOverride ?? unit.copy.output;
+      if (!copyText) return;
+
+      updateStrategy(p.id, unit.id, (u) => ({
+        ...u,
+        icp: { status: "running", rounds: [], finalCopy: "", finalScore: 0 },
+      }));
+      setLive({ node: "icp", strategyId: unit.id, text: "", status: "" });
+
+      const ctrl = new AbortController();
+      abortRef.current = ctrl;
+      runRef.current = null;
+
+      const rounds: IcpRound[] = [];
+      let finalCopy = copyText;
+      let finalScore = 0;
+      let acc = "";
+
+      await streamNdjson(
+        "/api/icp",
+        {
+          copy: copyText,
+          strategyContext: `This copy is for strategy ${unit.id} — ${unit.name} (${
+            unit.kind === "signal" ? "signal-based" : "fallback"
+          }).\n\n${p.strategy.output}`,
+          clientContext: clientContextFor(p),
+          minScore: p.settings.minIcpScore,
+          maxRounds: p.settings.maxIcpRounds,
+          wordLimitMode: p.settings.wordLimitMode,
+        },
+        (f) => {
+          if (f.t === "status") {
+            setLive((l) => (l ? { ...l, status: f.msg } : l));
+          } else if (f.t === "token") {
+            acc += f.text;
+            setLive((l) => (l ? { ...l, text: acc } : l));
+          } else if (f.t === "icp") {
+            rounds.push(f.round);
+            acc = "";
+            updateStrategy(p.id, unit.id, (u) => ({
+              ...u,
+              icp: { ...u.icp, status: "running", rounds: [...rounds] },
+            }));
+            setLive((l) => (l ? { ...l, text: "" } : l));
+          } else if (f.t === "final") {
+            finalCopy = f.copy;
+            finalScore = f.score;
+          } else if (f.t === "error") {
+            updateStrategy(p.id, unit.id, (u) => ({
+              ...u,
+              icp: { ...u.icp, status: "error", error: f.msg },
+            }));
+            setLive(null);
+          } else if (f.t === "done") {
+            updateStrategy(p.id, unit.id, (u) => ({
+              ...u,
+              icp: { ...u.icp, status: "done", rounds: [...rounds], finalCopy, finalScore },
+            }));
+            setLive(null);
+          }
+        },
+        ctrl.signal,
+      );
+      abortRef.current = null;
+    },
+    [active, busy, runningAll, updateStrategy],
+  );
+
+  /** Writes + brutal-tests every strategy Strategy recommended, one at a time. */
+  const runAllStrategies = React.useCallback(async () => {
+    if (!active || busy || !active.strategies.length) return;
+    setRunningAll(true);
+    try {
+      for (const unit of active.strategies) {
+        let copyText = unit.copy.output;
+        if (!copyText) {
+          copyText = await runStrategyCopy(unit, "");
         }
-      },
-      ctrl.signal,
-    );
-    abortRef.current = null;
-  };
+        if (copyText && !unit.icp.finalCopy) {
+          await runStrategyIcp(unit, copyText);
+        }
+      }
+      toast.success("Finished writing + brutal-testing every strategy");
+    } finally {
+      setRunningAll(false);
+    }
+  }, [active, busy, runStrategyCopy, runStrategyIcp]);
 
-  const applyIcpCopy = (copy: string) => {
+  const applyIcpCopyToStrategy = (strategyId: string, copy: string) => {
     if (!activeId) return;
-    update(activeId, (prev) => ({
-      ...prev,
-      copywriting: {
-        ...prev.copywriting,
+    updateStrategy(activeId, strategyId, (u) => ({
+      ...u,
+      copy: {
+        ...u.copy,
         output: copy,
         status: "done",
         turns: [
-          ...prev.copywriting.turns,
+          ...u.copy.turns,
           { role: "user", content: "[Applied improved copy from the ICP brutal test]" },
           { role: "assistant", content: copy },
         ],
       },
     }));
-    toast.success("Improved copy applied to the Copywriting step");
+    toast.success("Improved copy applied");
   };
 
-  const streamFor = (n: NodeId) =>
-    live && live.node === n ? { text: live.text, status: live.status } : null;
+  const streamFor = (n: NodeId, strategyId?: string) =>
+    live && live.node === n && live.strategyId === strategyId ? { text: live.text, status: live.status } : null;
 
   const downloadDocx = async () => {
-    if (!active || !active.copywriting.output) return;
+    if (!active) return;
+    const withCopy = active.strategies.filter((u) => u.copy.output);
+    if (!withCopy.length) return;
     try {
       const res = await fetch("/api/export-docx", {
         method: "POST",
@@ -326,10 +475,16 @@ export default function Home() {
         body: JSON.stringify({
           clientName: active.name,
           website: active.website,
-          copywritingOutput: active.copywriting.output,
-          icpFinalCopy: active.icp.finalCopy || undefined,
-          icpFinalScore: active.icp.finalScore || undefined,
           minIcpScore: active.settings.minIcpScore,
+          strategies: withCopy.map((u) => ({
+            id: u.id,
+            name: u.name,
+            kind: u.kind,
+            signalSourcing: u.signalSourcing,
+            copy: u.copy.output,
+            icpFinalCopy: u.icp.finalCopy || undefined,
+            icpFinalScore: u.icp.finalScore || undefined,
+          })),
         }),
       });
       if (!res.ok) {
@@ -357,6 +512,12 @@ export default function Home() {
   };
 
   // ─── Render ──────────────────────────────────────────────────────────────
+
+  const fallbackUnits = active?.strategies.filter((u) => u.kind === "fallback") ?? [];
+  const signalUnits = active?.strategies.filter((u) => u.kind === "signal") ?? [];
+  const hasAnyCopy = (active?.strategies ?? []).some((u) => u.copy.output);
+  const copyStatus = active ? aggregateStrategyStatus(active.strategies, "copy") : "idle";
+  const icpStatus = active ? aggregateStrategyStatus(active.strategies, "icp") : "idle";
 
   return (
     <div className="flex h-dvh overflow-hidden bg-background text-foreground">
@@ -399,16 +560,16 @@ export default function Home() {
                   <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
                     {(
                       [
-                        ["research", "research"],
-                        ["strategy", "strategy"],
-                        ["copywriting", "copy"],
-                        ["icp", "icp test"],
+                        ["research", active.research.status],
+                        ["strategy", active.strategy.status],
+                        ["copy", copyStatus],
+                        ["icp test", icpStatus],
                       ] as const
-                    ).map(([k, label], i) => (
-                      <React.Fragment key={k}>
+                    ).map(([label, status], i) => (
+                      <React.Fragment key={label}>
                         {i > 0 && <span className="text-border">──</span>}
                         <span className="flex items-center gap-1">
-                          <StatusDot status={active[k].status} />
+                          <StatusDot status={status} />
                           {label}
                         </span>
                       </React.Fragment>
@@ -418,12 +579,12 @@ export default function Home() {
                     type="button"
                     variant="outline"
                     size="sm"
-                    disabled={!active.copywriting.output}
+                    disabled={!hasAnyCopy}
                     onClick={downloadDocx}
                     title={
-                      active.copywriting.output
-                        ? "Download all copy as a consolidated Word doc"
-                        : "Write copy first"
+                      hasAnyCopy
+                        ? "Download every strategy's copy as one consolidated Word doc"
+                        : "Write copy for at least one strategy first"
                     }
                   >
                     <FileDown className="size-3.5" /> Download DOCX
@@ -449,7 +610,7 @@ export default function Home() {
               <NodeCell
                 index={2}
                 title="Strategy"
-                hint="Signal-based + fallback strategies, ranked, with copy guidance"
+                hint="Signal-based (SS) + fallback (S) strategies, ranked, with copy guidance"
                 node={active.strategy}
                 streaming={streamFor("strategy")}
                 busy={busy}
@@ -478,21 +639,12 @@ export default function Home() {
                 }
               />
 
-              <NodeCell
-                index={3}
-                title="Copywriting"
-                hint="Full version set per strategy, fused prompts + knowledge base"
-                node={active.copywriting}
-                streaming={streamFor("copywriting")}
-                busy={busy}
-                locked={!active.strategy.output}
-                lockReason="Build Strategy first — copy is written per strategy."
-                firstRunLabel='Type which strategies to write (e.g. "strategy 1 and 3", "top 3"), then Run'
-                placeholder='Which strategies? e.g. "the top 3 recommended" or "strategy 2 & 5" (Enter to run)…'
-                onRun={(fb) => runNode("copywriting", fb)}
-                onStop={stop}
-                headerExtra={
-                  <div className="flex items-center gap-3">
+              {active.strategy.output && (
+                <div className="space-y-4">
+                  <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-card/40 px-4 py-2.5">
+                    <span className="text-sm font-semibold">
+                      Strategies ({active.strategies.length})
+                    </span>
                     <Stepper
                       label="versions"
                       value={active.settings.versionCount}
@@ -532,43 +684,163 @@ export default function Home() {
                         ))}
                       </div>
                     </div>
+                    <div className="ml-auto flex items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={busy || extracting}
+                        onClick={() => extractStrategies(active.id, active.strategy.output)}
+                      >
+                        <ListRestart className="size-3.5" />
+                        {extracting ? "Reading…" : "Re-scan strategies"}
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        disabled={busy || !active.strategies.length}
+                        onClick={runAllStrategies}
+                      >
+                        <Play className="size-3.5" />
+                        {runningAll ? "Running…" : "Write + brutal-test all"}
+                      </Button>
+                    </div>
                   </div>
-                }
-              />
 
-              <IcpCell
-                index={4}
-                icp={active.icp}
-                streaming={streamFor("icp")}
-                busy={busy}
-                locked={!active.copywriting.output}
-                lockReason="Generate copy first, then pressure-test it."
-                minScore={active.settings.minIcpScore}
-                maxRounds={active.settings.maxIcpRounds}
-                onRun={runIcp}
-                onStop={stop}
-                onApply={applyIcpCopy}
-                onChangeSettings={(patch) =>
-                  update(active.id, (prev) => ({
-                    ...prev,
-                    settings: {
-                      ...prev.settings,
-                      ...(patch.minIcpScore !== undefined
-                        ? { minIcpScore: patch.minIcpScore }
-                        : {}),
-                      ...(patch.maxIcpRounds !== undefined
-                        ? { maxIcpRounds: patch.maxIcpRounds }
-                        : {}),
-                    },
-                  }))
-                }
-              />
+                  {extracting && !active.strategies.length && (
+                    <p className="px-1 text-xs text-muted-foreground">
+                      Reading the strategy list…
+                    </p>
+                  )}
+
+                  {!extracting && active.strategy.output && !active.strategies.length && (
+                    <p className="px-1 text-xs text-muted-foreground">
+                      No strategies extracted yet — click "Re-scan strategies" above.
+                    </p>
+                  )}
+
+                  {fallbackUnits.length > 0 && (
+                    <div className="space-y-3">
+                      <div className="px-1 text-[11px] font-semibold uppercase tracking-wide text-term-cyan">
+                        Fallback (S) — no signal needed
+                      </div>
+                      {fallbackUnits.map((unit) => (
+                        <StrategyBlock
+                          key={unit.id}
+                          unit={unit}
+                          busy={busy}
+                          streamFor={streamFor}
+                          minScore={active.settings.minIcpScore}
+                          maxRounds={active.settings.maxIcpRounds}
+                          onRunCopy={(fb) => runStrategyCopy(unit, fb)}
+                          onRunIcp={() => runStrategyIcp(unit)}
+                          onStop={stop}
+                          onApplyIcp={(copy) => applyIcpCopyToStrategy(unit.id, copy)}
+                          onChangeIcpSettings={(patch) =>
+                            update(active.id, (prev) => ({
+                              ...prev,
+                              settings: { ...prev.settings, ...patch },
+                            }))
+                          }
+                        />
+                      ))}
+                    </div>
+                  )}
+
+                  {signalUnits.length > 0 && (
+                    <div className="space-y-3">
+                      <div className="px-1 text-[11px] font-semibold uppercase tracking-wide text-term-violet">
+                        Signal-Based (SS) — needs live trigger data
+                      </div>
+                      {signalUnits.map((unit) => (
+                        <StrategyBlock
+                          key={unit.id}
+                          unit={unit}
+                          busy={busy}
+                          streamFor={streamFor}
+                          minScore={active.settings.minIcpScore}
+                          maxRounds={active.settings.maxIcpRounds}
+                          onRunCopy={(fb) => runStrategyCopy(unit, fb)}
+                          onRunIcp={() => runStrategyIcp(unit)}
+                          onStop={stop}
+                          onApplyIcp={(copy) => applyIcpCopyToStrategy(unit.id, copy)}
+                          onChangeIcpSettings={(patch) =>
+                            update(active.id, (prev) => ({
+                              ...prev,
+                              settings: { ...prev.settings, ...patch },
+                            }))
+                          }
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="h-6" />
             </div>
           </>
         )}
       </main>
+    </div>
+  );
+}
+
+// ─── Per-strategy block: copy cell + brutal-test cell, labeled S#/SS# ──────
+
+function StrategyBlock({
+  unit,
+  busy,
+  streamFor,
+  minScore,
+  maxRounds,
+  onRunCopy,
+  onRunIcp,
+  onStop,
+  onApplyIcp,
+  onChangeIcpSettings,
+}: {
+  unit: StrategyUnit;
+  busy: boolean;
+  streamFor: (n: NodeId, strategyId?: string) => { text: string; status: string } | null;
+  minScore: number;
+  maxRounds: number;
+  onRunCopy: (feedback: string) => void;
+  onRunIcp: () => void;
+  onStop: () => void;
+  onApplyIcp: (copy: string) => void;
+  onChangeIcpSettings: (patch: { minIcpScore?: number; maxIcpRounds?: number }) => void;
+}) {
+  return (
+    <div className="space-y-2 rounded-lg border border-border/70 bg-card/20 p-3">
+      <StrategyUnitHeader unit={unit} />
+      <NodeCell
+        index={1}
+        title="Copywriting"
+        hint={`Full version set for ${unit.id}`}
+        node={unit.copy}
+        streaming={streamFor("copywriting", unit.id)}
+        busy={busy}
+        firstRunLabel={`Write copy for ${unit.id} — ${unit.name}`}
+        placeholder="Add a specific instruction, or leave blank to write (Enter to run)…"
+        onRun={onRunCopy}
+        onStop={onStop}
+      />
+      <IcpCell
+        index={2}
+        title={`${unit.id} Brutal Test`}
+        icp={unit.icp}
+        streaming={streamFor("icp", unit.id)}
+        busy={busy}
+        locked={!unit.copy.output}
+        lockReason="Write copy for this strategy first."
+        minScore={minScore}
+        maxRounds={maxRounds}
+        onRun={onRunIcp}
+        onStop={onStop}
+        onApply={onApplyIcp}
+        onChangeSettings={onChangeIcpSettings}
+      />
     </div>
   );
 }

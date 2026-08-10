@@ -3,6 +3,9 @@ import {
   type ClientProject,
   type IcpState,
   type NodeState,
+  type NodeStatus,
+  type StrategyKind,
+  type StrategyUnit,
 } from "./types";
 
 export const emptyNode = (): NodeState => ({
@@ -17,6 +20,34 @@ export const emptyIcp = (): IcpState => ({
   finalCopy: "",
   finalScore: 0,
 });
+
+export function makeStrategyUnit(input: {
+  id: string;
+  name: string;
+  kind: StrategyKind;
+  signalSourcing?: string;
+}): StrategyUnit {
+  return {
+    id: input.id,
+    name: input.name,
+    kind: input.kind,
+    signalSourcing: input.signalSourcing,
+    copy: emptyNode(),
+    icp: emptyIcp(),
+  };
+}
+
+/** Rolls up per-strategy copy/icp status into one dot for the header/sidebar. */
+export function aggregateStrategyStatus(
+  units: StrategyUnit[],
+  key: "copy" | "icp",
+): NodeStatus {
+  if (!units.length) return "idle";
+  if (units.some((u) => u[key].status === "error")) return "error";
+  if (units.some((u) => u[key].status === "running")) return "running";
+  if (units.every((u) => u[key].status === "done")) return "done";
+  return "idle";
+}
 
 export function newId(): string {
   try {
@@ -50,8 +81,7 @@ export function makeProject(input: {
     updatedAt: now,
     research: emptyNode(),
     strategy: emptyNode(),
-    copywriting: emptyNode(),
-    icp: emptyIcp(),
+    strategies: [],
     settings: { ...DEFAULT_SETTINGS },
   };
 }

@@ -31,6 +31,7 @@ function ScoreBadge({ score, min }: { score: number; min: number }) {
 export interface IcpCellProps {
   index: number;
   icp: IcpState;
+  title?: string;
   locked?: boolean;
   lockReason?: string;
   busy?: boolean;
@@ -46,6 +47,7 @@ export interface IcpCellProps {
 export function IcpCell({
   index,
   icp,
+  title = "ICP Brutal Test",
   locked,
   lockReason,
   busy,
@@ -76,7 +78,7 @@ export function IcpCell({
         </span>
         <div className="flex flex-col">
           <span className="text-sm font-semibold tracking-wide">
-            ICP Brutal Test
+            {title}
           </span>
           <span className="text-[11px] text-muted-foreground">
             Claude becomes the prospect, rates 1-10, and rewrites until it clears {minScore}+.

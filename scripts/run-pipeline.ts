@@ -13,15 +13,21 @@ import { join } from "node:path";
 import { createInterface } from "node:readline/promises";
 
 import { structuredCall, streamText, MODEL } from "@/lib/anthropic";
-import { buildCopyDocx } from "@/lib/docx-export";
+import { buildCopyDocx, type StrategyDocxInput } from "@/lib/docx-export";
 import {
   copySystem,
   icpJudgeSystem,
   icpReviseSystem,
   researchSystem,
+  strategyListSystem,
   strategySystem,
 } from "@/lib/prompts";
-import { DEFAULT_SETTINGS, type ChatTurn, type ProjectSettings } from "@/lib/types";
+import {
+  DEFAULT_SETTINGS,
+  type ChatTurn,
+  type ProjectSettings,
+  type StrategyListResponseBody,
+} from "@/lib/types";
 
 const rl = createInterface({ input: process.stdin, output: process.stdout });
 
@@ -117,18 +123,24 @@ ${strategyIdea ? `\nOur initial strategy idea to consider:\n${strategyIdea}\n` :
 Build the full set of outreach strategies now — signal-based (micro) and fallback (macro), aiming for roughly ${signalRatio}% signal-based. Include the ranking table, top recommendations, and the strategic guidance for copy.`;
 }
 
-function buildCopySeed(researchOutput: string, strategyOutput: string, target: string): string {
+function buildStrategyCopySeed(
+  researchOutput: string,
+  strategyOutput: string,
+  s: { id: string; name: string; kind: "fallback" | "signal"; signalSourcing?: string },
+): string {
   return `RESEARCH BRIEF:
 ---
 ${researchOutput}
 ---
 
-STRATEGY DOC:
+STRATEGY DOC (full, for context — but write for ONLY the one strategy named below):
 ---
 ${strategyOutput}
 ---
 
-Write cold-email copy for: ${target || "the top 3 recommended strategies"}.`;
+Write the full copy set for EXACTLY this one strategy: **${s.id} — ${s.name}** (${
+    s.kind === "signal" ? "signal-based" : "fallback"
+  }).${s.signalSourcing ? ` Signal sourcing: ${s.signalSourcing}` : ""} Do not write for any other strategy in the doc.`;
 }
 
 function clientContextFor(name: string, researchOutput: string): string {
@@ -178,6 +190,28 @@ const VERDICT_SCHEMA = {
     mustFix: { type: "array", items: { type: "string" } },
   },
   required: ["score", "wouldReply", "reason", "mustFix"],
+} as const;
+
+const STRATEGY_LIST_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    strategies: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          id: { type: "string" },
+          name: { type: "string" },
+          kind: { type: "string", enum: ["fallback", "signal"] },
+          signalSourcing: { type: "string" },
+        },
+        required: ["id", "name", "kind"],
+      },
+    },
+  },
+  required: ["strategies"],
 } as const;
 
 interface IcpRoundResult {
@@ -288,13 +322,13 @@ interface PipelineInput {
   offers?: string;
   onboardingDocs?: string;
   strategyIdea?: string;
-  copyTarget?: string;
   settings?: Partial<ProjectSettings>;
   useWebTools?: boolean;
 }
 
 async function gatherInteractive(): Promise<PipelineInput> {
   console.log("=== GenFlows Copywriter Agent — headless pipeline test ===\n");
+  console.log("Every strategy Strategy recommends gets its own copy + brutal test — no target to pick.\n");
 
   const name = await ask("Client name");
   if (!name) {
@@ -306,7 +340,6 @@ async function gatherInteractive(): Promise<PipelineInput> {
   const offers = await askLong("Offers, one per line (optional)");
   const onboardingDocs = await askLong("Onboarding docs / questionnaire notes");
   const strategyIdea = await askLong("Initial strategy idea (optional — Claude will still fully strategize around it)");
-  const copyTarget = await ask("Which strategies should Copywriting write for?", "the top 3 recommended strategies");
 
   console.log("\n--- Settings (Enter to accept defaults) ---");
   const versionCount = await askInt("Copy versions per strategy (3-8)", DEFAULT_SETTINGS.versionCount, 3, 8);
@@ -328,7 +361,6 @@ async function gatherInteractive(): Promise<PipelineInput> {
     offers,
     onboardingDocs,
     strategyIdea,
-    copyTarget,
     settings: { versionCount, signalRatio, minIcpScore, maxIcpRounds, wordLimitMode },
     useWebTools,
   };
@@ -353,7 +385,6 @@ async function main() {
   const offers = raw.offers ?? "";
   const onboardingDocs = raw.onboardingDocs ?? "";
   const strategyIdea = raw.strategyIdea ?? "";
-  const copyTarget = raw.copyTarget || "the top 3 recommended strategies";
   const settings: ProjectSettings = { ...DEFAULT_SETTINGS, ...raw.settings };
   const useWebTools = raw.useWebTools ?? true;
   const { versionCount, signalRatio, minIcpScore, maxIcpRounds, wordLimitMode } = settings;
@@ -365,7 +396,6 @@ async function main() {
 
 - **Client:** ${name}
 - **Website:** ${website || "(none)"}
-- **Copy target:** ${copyTarget}
 - **Model:** ${MODEL}
 - **Web tools:** ${useWebTools ? "enabled" : "disabled"}
 - **Settings:** ${JSON.stringify(settings, null, 2)}
@@ -408,47 +438,92 @@ ${onboardingDocs || "(none)"}
     });
     await writeFile(join(outDir, "02-strategy.md"), strategyOutput, "utf8");
 
-    // 3. Copywriting
-    const copyOutput = await runStreamingNode({
-      label: "3. Copywriting",
-      system: await copySystem(settings),
-      messages: [{ role: "user", content: buildCopySeed(researchOutput, strategyOutput, copyTarget) }],
-      web: false,
-    });
-    await writeFile(join(outDir, "03-copywriting.md"), copyOutput, "utf8");
+    // 3. Extract the strategy list — every one of these gets its own copy + brutal test.
+    console.log(`\n\x1b[1m▸ 3. Reading strategy list\x1b[0m`);
+    const listResult = await structuredCall<StrategyListResponseBody>(
+      strategyListSystem(),
+      [{ role: "user", content: `STRATEGY DOC:\n---\n${strategyOutput}` }],
+      STRATEGY_LIST_SCHEMA,
+      "strategy_list",
+      4096,
+    );
+    const strategyList = listResult.strategies;
+    console.log(`  Found ${strategyList.length} strategies.`);
+    await writeFile(join(outDir, "03-strategy-list.json"), JSON.stringify(strategyList, null, 2), "utf8");
 
-    // 4. ICP Brutal Test
-    const icpResult = await runIcpBrutalTest({
-      copy: copyOutput,
-      strategyContext: strategyOutput,
-      clientContext: clientContextFor(name, researchOutput),
-      minScore: minIcpScore,
-      maxRounds: maxIcpRounds,
-      wordLimitMode,
-    });
+    // 4. Per-strategy Copywriting + ICP Brutal Test loop. Isolated per strategy —
+    // one transient failure (network blip, timeout) shouldn't lose every other
+    // strategy's completed work, since a full run can be dozens of sequential calls.
+    const results: StrategyDocxInput[] = [];
+    const failed: string[] = [];
+    for (const [i, s] of strategyList.entries()) {
+      console.log(`\n\x1b[1m▸ 4.${i + 1} ${s.id} — ${s.name} (${s.kind})\x1b[0m`);
+      try {
+        const copyOutput = await runStreamingNode({
+          label: `  Copywriting ${s.id}`,
+          system: await copySystem(settings),
+          messages: [{ role: "user", content: buildStrategyCopySeed(researchOutput, strategyOutput, s) }],
+          web: false,
+        });
 
-    const icpMd = [
-      ...icpResult.rounds.map(
+        const icpResult = await runIcpBrutalTest({
+          copy: copyOutput,
+          strategyContext: `This copy is for strategy ${s.id} — ${s.name} (${s.kind}).\n\n${strategyOutput}`,
+          clientContext: clientContextFor(name, researchOutput),
+          minScore: minIcpScore,
+          maxRounds: maxIcpRounds,
+          wordLimitMode,
+        });
+
+        results.push({
+          id: s.id,
+          name: s.name,
+          kind: s.kind,
+          signalSourcing: s.signalSourcing,
+          copy: copyOutput,
+          icpFinalCopy: icpResult.finalCopy,
+          icpFinalScore: icpResult.finalScore,
+        });
+      } catch (err) {
+        console.error(`  ⚠ ${s.id} failed: ${(err as Error).message}. Skipping — continuing with the rest.`);
+        failed.push(`${s.id} — ${s.name}: ${(err as Error).message}`);
+      }
+    }
+    if (failed.length) {
+      console.log(`\n\x1b[1mSkipped ${failed.length} strategy(ies) after a failure:\x1b[0m`);
+      failed.forEach((f) => console.log(`  - ${f}`));
+      await writeFile(join(outDir, "03b-failed-strategies.txt"), failed.join("\n"), "utf8");
+    }
+
+    const allCopyMd = results
+      .map((r) => `## ${r.id} — ${r.name} (${r.kind})\n\n${r.copy}`)
+      .join("\n\n---\n\n");
+    await writeFile(join(outDir, "04-all-copy.md"), allCopyMd, "utf8");
+
+    const allIcpMd = results
+      .map(
         (r) =>
-          `### Round ${r.round} — ${r.score}/10 — ${r.wouldReply ? "would reply" : "would NOT reply"}\n\n**Feedback:**\n${r.feedback}\n\n**Copy scored this round:**\n\n\`\`\`\n${r.copy}\n\`\`\`\n`,
-      ),
-      `## Final — ${icpResult.finalScore}/10\n\n\`\`\`\n${icpResult.finalCopy}\n\`\`\`\n`,
-    ].join("\n---\n\n");
-    await writeFile(join(outDir, "04-icp-brutal-test.md"), icpMd, "utf8");
-    await writeFile(join(outDir, "05-final-copy.md"), icpResult.finalCopy, "utf8");
+          `## ${r.id} — ${r.name} — Final ${r.icpFinalScore}/10\n\n\`\`\`\n${r.icpFinalCopy}\n\`\`\`\n`,
+      )
+      .join("\n---\n\n");
+    await writeFile(join(outDir, "05-all-icp-brutal-test.md"), allIcpMd, "utf8");
 
     // 5. Consolidated Word doc — the actual client-deliverable artifact.
     const docxBuffer = await buildCopyDocx({
       clientName: name,
       website,
-      copywritingOutput: copyOutput,
-      icpFinalCopy: icpResult.finalCopy,
-      icpFinalScore: icpResult.finalScore,
+      strategies: results,
       minIcpScore,
     });
     await writeFile(join(outDir, "06-consolidated-copy.docx"), docxBuffer);
 
-    console.log(`\n\x1b[1mDone.\x1b[0m Final ICP score: ${icpResult.finalScore}/10. Files written to:\n  ${outDir}`);
+    const avgScore =
+      results.reduce((sum, r) => sum + (r.icpFinalScore ?? 0), 0) / (results.length || 1);
+    console.log(
+      `\n\x1b[1mDone.\x1b[0m ${results.length}/${strategyList.length} strategies written + brutal-tested${
+        failed.length ? ` (${failed.length} skipped — see 03b-failed-strategies.txt)` : ""
+      }. Avg final score: ${avgScore.toFixed(1)}/10. Files written to:\n  ${outDir}`,
+    );
   } catch (err) {
     console.error("\nPipeline failed:", err);
     process.exitCode = 1;

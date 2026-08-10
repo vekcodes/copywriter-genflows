@@ -5,6 +5,7 @@ import { Plus, Trash2, Terminal } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import type { ClientProject } from "@/lib/types";
+import { aggregateStrategyStatus } from "@/lib/project";
 import { StatusDot } from "./bits";
 
 function relTime(ts: number): string {
@@ -62,7 +63,12 @@ export function Sidebar({
         )}
         <ul className="space-y-0.5">
           {projects.map((p) => {
-            const nodes = [p.research, p.strategy, p.copywriting, p.icp] as const;
+            const statuses = [
+              p.research.status,
+              p.strategy.status,
+              aggregateStrategyStatus(p.strategies, "copy"),
+              aggregateStrategyStatus(p.strategies, "icp"),
+            ];
             return (
               <li key={p.id}>
                 <button
@@ -78,8 +84,8 @@ export function Sidebar({
                   <div className="flex min-w-0 flex-1 flex-col">
                     <span className="truncate font-medium">{p.name}</span>
                     <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
-                      {nodes.map((n, i) => (
-                        <StatusDot key={i} status={n.status} />
+                      {statuses.map((s, i) => (
+                        <StatusDot key={i} status={s} />
                       ))}
                       <span className="ml-1">{relTime(p.updatedAt)}</span>
                     </span>

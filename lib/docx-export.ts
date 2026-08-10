@@ -185,16 +185,73 @@ function markdownToDocxBlocks(markdown: string): (Paragraph | Table)[] {
   return blocks;
 }
 
+export interface StrategyDocxInput {
+  id: string;
+  name: string;
+  kind: "fallback" | "signal";
+  signalSourcing?: string;
+  /** As originally written. */
+  copy: string;
+  /** ICP-tested rewrite, if the brutal test has run for this strategy. */
+  icpFinalCopy?: string;
+  icpFinalScore?: number;
+}
+
 export interface CopyDocxInput {
   clientName: string;
   website?: string;
-  copywritingOutput: string;
-  icpFinalCopy?: string;
-  icpFinalScore?: number;
+  strategies: StrategyDocxInput[];
   minIcpScore?: number;
 }
 
-/** Builds a single consolidated Word doc with every version of copy for a client. */
+function strategySectionBlocks(s: StrategyDocxInput, minIcpScore?: number): (Paragraph | Table)[] {
+  const blocks: (Paragraph | Table)[] = [
+    new Paragraph({
+      heading: HeadingLevel.HEADING_2,
+      spacing: { before: 200, after: 60 },
+      children: [new TextRun(`${s.id} — ${s.name}`)],
+    }),
+  ];
+
+  if (s.kind === "signal" && s.signalSourcing) {
+    blocks.push(
+      new Paragraph({
+        shading: { type: ShadingType.CLEAR, fill: "F3ECFB" },
+        spacing: { after: 140 },
+        border: { left: { style: BorderStyle.SINGLE, size: 18, color: "8E5FD1" } },
+        indent: { left: 120 },
+        children: [
+          new TextRun({ text: "How to source this signal: ", bold: true }),
+          new TextRun(s.signalSourcing),
+        ],
+      }),
+    );
+  }
+
+  const hasFinal = !!s.icpFinalCopy;
+  if (typeof s.icpFinalScore === "number") {
+    blocks.push(
+      new Paragraph({
+        spacing: { after: 140 },
+        children: [
+          new TextRun({
+            text: `ICP brutal-test score: ${s.icpFinalScore}/10${
+              minIcpScore ? ` (pass bar: ${minIcpScore}+)` : ""
+            }${hasFinal ? " — showing the tested rewrite below." : ""}`,
+            italics: true,
+            color: MUTED,
+          }),
+        ],
+      }),
+    );
+  }
+
+  blocks.push(...markdownToDocxBlocks(hasFinal ? s.icpFinalCopy! : s.copy));
+  blocks.push(new Paragraph({ children: [new PageBreak()] }));
+  return blocks;
+}
+
+/** Builds a single consolidated Word doc covering every strategy's copy, segmented S (fallback) vs SS (signal). */
 export async function buildCopyDocx(input: CopyDocxInput): Promise<Buffer> {
   const children: (Paragraph | Table)[] = [
     new Paragraph({
@@ -211,50 +268,51 @@ export async function buildCopyDocx(input: CopyDocxInput): Promise<Buffer> {
   if (input.website) {
     children.push(
       new Paragraph({
-        spacing: { after: 300 },
+        spacing: { after: 200 },
         children: [new TextRun({ text: input.website, size: 20, color: MUTED })],
       }),
     );
   }
 
-  if (input.icpFinalCopy) {
+  const fallback = input.strategies.filter((s) => s.kind === "fallback");
+  const signal = input.strategies.filter((s) => s.kind === "signal");
+
+  children.push(
+    new Paragraph({
+      spacing: { after: 200 },
+      children: [
+        new TextRun({
+          text: `${input.strategies.length} strategies — ${fallback.length} fallback (S), ${signal.length} signal-based (SS).`,
+          color: MUTED,
+        }),
+      ],
+    }),
+    new Paragraph({ children: [new PageBreak()] }),
+  );
+
+  if (fallback.length) {
     children.push(
       new Paragraph({
         heading: HeadingLevel.HEADING_1,
         spacing: { before: 100, after: 100 },
-        children: [new TextRun({ text: "Final Copy (ICP Brutal-Test Passed)", color: BRAND_ORANGE })],
+        children: [new TextRun({ text: "Fallback Strategies (S) — No Signal Needed", color: BRAND_ORANGE })],
       }),
     );
-    if (typeof input.icpFinalScore === "number") {
-      children.push(
-        new Paragraph({
-          spacing: { after: 160 },
-          children: [
-            new TextRun({
-              text: `Scored ${input.icpFinalScore}/10 by the simulated prospect${
-                input.minIcpScore ? ` (pass bar: ${input.minIcpScore}+)` : ""
-              }.`,
-              italics: true,
-              color: MUTED,
-            }),
-          ],
-        }),
-      );
-    }
-    children.push(...markdownToDocxBlocks(input.icpFinalCopy));
-    children.push(new Paragraph({ children: [new PageBreak()] }));
+    fallback.forEach((s) => children.push(...strategySectionBlocks(s, input.minIcpScore)));
   }
 
-  children.push(
-    new Paragraph({
-      heading: HeadingLevel.HEADING_1,
-      spacing: { before: 100, after: 100 },
-      children: [
-        new TextRun({ text: "Full Copywriting Output (All Strategies & Versions)", color: BRAND_ORANGE }),
-      ],
-    }),
-  );
-  children.push(...markdownToDocxBlocks(input.copywritingOutput));
+  if (signal.length) {
+    children.push(
+      new Paragraph({
+        heading: HeadingLevel.HEADING_1,
+        spacing: { before: 100, after: 100 },
+        children: [
+          new TextRun({ text: "Signal-Based Strategies (SS) — Need Live Trigger Data", color: BRAND_ORANGE }),
+        ],
+      }),
+    );
+    signal.forEach((s) => children.push(...strategySectionBlocks(s, input.minIcpScore)));
+  }
 
   const doc = new Document({
     styles: {
