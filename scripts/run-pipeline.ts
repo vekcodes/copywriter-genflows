@@ -5,8 +5,8 @@
  * (from @/lib/prompts + @/lib/anthropic) that the API routes use.
  *
  * Usage:  npm run pipeline
- * Needs:  CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY in .env (loaded via
- *         `node --env-file=.env`, wired into the npm script).
+ * Needs:  ANTHROPIC_API_KEY in .env (loaded via `node --env-file=.env`,
+ *         wired into the npm script).
  */
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -133,13 +133,16 @@ async function runStreamingNode(opts: {
   system: string;
   messages: ChatTurn[];
   web: boolean;
+  maxWebUses?: number;
+  maxTokens?: number;
 }): Promise<string> {
   console.log(`\n\x1b[1m▸ ${opts.label}\x1b[0m`);
   const text = await streamText({
     system: opts.system,
     messages: opts.messages,
     web: opts.web,
-    maxTokens: 8192,
+    maxWebUses: opts.maxWebUses,
+    maxTokens: opts.maxTokens ?? 8192,
     onStatus: (msg) => console.log(`  \x1b[2m… ${msg}\x1b[0m`),
     onToken: (t) => process.stdout.write(t),
   });
@@ -366,6 +369,8 @@ ${onboardingDocs || "(none)"}
       system: await researchSystem(),
       messages: [{ role: "user", content: buildResearchSeed({ name, website, onboardingDocs, strategyIdea }) }],
       web: useWebTools,
+      maxWebUses: 25,
+      maxTokens: 16000,
     });
     await writeFile(join(outDir, "01-research.md"), researchOutput, "utf8");
 

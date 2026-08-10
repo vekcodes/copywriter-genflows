@@ -22,10 +22,9 @@ npm run pipeline              # run the whole 4-stage pipeline headless from the
 
 There are no unit tests in this repo. `npm run typecheck` is the closest thing to a correctness gate before committing.
 
-### Credentials (`.env`, one required)
+### Credentials (`.env`, required)
 
-- `ANTHROPIC_API_KEY` — pay-per-token key; takes priority if both are set.
-- `CLAUDE_CODE_OAUTH_TOKEN` — subscription token from `claude setup-token`; shares one quota pool with other Claude usage (expect occasional 429s under load — set `ANTHROPIC_API_KEY` instead for heavy/concurrent use).
+- `ANTHROPIC_API_KEY` — pay-per-token key.
 - Optional: `COPYWRITER_MODEL` (default `claude-opus-4-8`), `DISABLE_WEB_TOOLS=1` (disables live `web_search`/`web_fetch`).
 
 ## Architecture

@@ -24,10 +24,9 @@ npm install
 cp .env.example .env
 ```
 
-Open `.env` and add **one** credential:
+Open `.env` and add your credential:
 
-- `CLAUDE_CODE_OAUTH_TOKEN` — if you (or the agency) have a Claude Pro/Max subscription. Generate it with `claude setup-token` and paste the whole thing in. Heads up: this shares one rate-limit pool with any other Claude usage you're doing (including a live Claude Code session) — expect occasional `429`s under load.
-- `ANTHROPIC_API_KEY` — a normal pay-per-token API key, with its own independent quota. Takes priority if both are set. Best choice if you're doing heavy or concurrent runs.
+- `ANTHROPIC_API_KEY` — a normal pay-per-token API key from [console.anthropic.com](https://console.anthropic.com/settings/keys).
 
 Then:
 
@@ -73,8 +72,8 @@ There's a `CLAUDE.md` at the repo root with more architecture detail if you're w
 
 ## Common gotchas
 
-- **`401`** from the API = bad/expired credential → regenerate with `claude setup-token` or check your API key.
-- **`429`** = valid credential, but rate-limited (usually the shared OAuth quota pool) → wait, or switch to a dedicated `ANTHROPIC_API_KEY`.
+- **`401`** from the API = bad/expired `ANTHROPIC_API_KEY` → check the console.
+- **`429`** = valid key, but rate-limited → wait and retry.
 - Live web research (fetching the client site, searching for verified stats) needs a credential that supports the web tools; if it doesn't, the app falls back gracefully to whatever content you pasted in. Set `DISABLE_WEB_TOOLS=1` to turn this off deliberately.
 - Client projects don't sync across browsers/devices — they're local to whichever browser you created them in.
 - Adding a new static prompt asset? Register it in `next.config.mjs`'s `outputFileTracingIncludes` too, or a production build won't bundle it.

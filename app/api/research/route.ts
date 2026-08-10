@@ -15,7 +15,8 @@ export async function POST(req: NextRequest) {
       system,
       messages: body.messages,
       web: body.web ?? true,
-      maxTokens: 8192,
+      maxWebUses: 25,
+      maxTokens: 16000,
       onStatus: (msg) => emit({ t: "status", msg }),
       onToken: (text) => emit({ t: "token", text }),
     });

@@ -4,10 +4,10 @@ import type { StreamFrame } from "./types";
 export function humanError(err: any): string {
   const status = err?.status;
   if (status === 401 || status === 403) {
-    return "Authentication failed (401/403). Check CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY in .env — the OAuth token may have expired (regenerate with `claude setup-token`).";
+    return "Authentication failed (401/403). Check ANTHROPIC_API_KEY in .env.";
   }
   if (status === 429) {
-    return "Rate limited (429). The subscription OAuth token shares one quota pool with other Claude usage. Try again shortly, or set a dedicated ANTHROPIC_API_KEY for independent quota.";
+    return "Rate limited (429). Try again shortly.";
   }
   if (status === 529) {
     return "The API is temporarily overloaded (529). Try again in a moment.";

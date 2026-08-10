@@ -27,14 +27,13 @@ cp .env.example .env   # then add a credential (see below)
 npm run dev            # http://localhost:3000
 ```
 
-### Authentication (choose one, in `.env`)
+### Authentication (in `.env`)
 
 The credential stays server-side (Next.js API routes) and is never sent to the browser.
 
-- **`CLAUDE_CODE_OAUTH_TOKEN`** — from a Claude Pro/Max subscription. Generate with `claude setup-token` and paste the whole token.
-- **`ANTHROPIC_API_KEY`** — a standard pay-per-token key. If set, it takes priority.
+- **`ANTHROPIC_API_KEY`** — a standard pay-per-token key from [console.anthropic.com](https://console.anthropic.com/settings/keys).
 
-> **Rate limits:** the subscription OAuth token shares **one quota pool** with your other Claude usage (including a live Claude Code session). Under load you'll see `429` and the app will back off and retry. For heavy or concurrent use, set a dedicated `ANTHROPIC_API_KEY` — it has independent quota. A `429` means the token is valid but throttled; `401` means the token is wrong/expired (regenerate it).
+> **Rate limits:** under load you'll see `429` and the app will back off and retry. A `429` means the key is valid but throttled; `401` means the key is wrong/expired.
 
 ### Optional env
 
@@ -59,6 +58,7 @@ The credential stays server-side (Next.js API routes) and is never sent to the b
 - **Next.js 15 (App Router) + Tailwind v4 + shadcn/ui.** Dark terminal theme in `app/globals.css`.
 - **API routes** (`app/api/{research,strategy,copywriting,icp}`) run on the Node.js runtime, build the Anthropic client from env, and **stream NDJSON frames** (`status`, `token`, `icp`, `final`, `done`, `error`).
 - **`lib/anthropic.ts`** — client + streaming with prompt-caching of the (large) system block, live `web_search` / `web_fetch` server tools with graceful fallback if the credential can't use them, and `429/529` backoff.
+- **Deep research:** the Research node runs a much higher `web_search`/`web_fetch` budget than Strategy and is prompted to plan its searches, pull from multiple sources, and cross-check stats before writing — see `lib/prompts.ts` (`researchSystem`).
 - **`lib/prompts.ts`** — composes each node's system prompt from your source assets:
   - `research and strategy.txt` — the agency research + strategy methodology.
   - `content/copywriting-master.md` — the fused v1 + v2 copywriting system.
